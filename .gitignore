@@ -1,0 +1,46 @@
+# Generated at runtime next to app.py — contains the auto-generated app
+# token (equivalent to full control of the app for anyone who has it) plus
+# your personal download folder path. Never commit this.
+settings.json
+
+# Exported browser session cookies (see README's "Getting cookies" section)
+# — equivalent to your login session on whatever site it came from.
+cookies.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.swp
+
+# In case DOWNLOAD_DIR is ever pointed inside the repo instead of its
+# default (~/Music/...) — downloaded media and playlist exports have no
+# business being committed.
+*.mp3
+*.m4a
+*.flac
+*.wav
+*.opus
+*.mp4
+*.mkv
+*.webm
+*.m3u
+*.lrc
