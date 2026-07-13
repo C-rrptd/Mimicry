@@ -61,6 +61,9 @@ still generally download fine, just under a generic "web" badge.
 - **Lyrics (optional)** — looks up real lyrics from [lrclib.net](https://lrclib.net) first (synced when available), falling back to YouTube's captions (manual if the video has them, otherwise auto-generated) only if nothing was found. Off by default — turn it on in the preferences row in the UI.
 - **Configurable concurrency** — how many tracks download at once (1–6), adjustable in the UI.
 - **Instant preview** — streams audio or video straight from the source site with no local caching of the media itself; the resolved stream link is cached briefly so replaying/scrubbing the same track comes back instantly instead of re-resolving it. Already-downloaded tracks preview from the real file directly.
+- **Per-track crop** — trim an individual queued track's start/length independently of the rest of the batch, via the ✂ button on that row; preview respects the same crop before you commit to downloading it.
+- **Per-track format override** — download one item in a queue/playlist as a different type (audio vs. video, format, quality) than the rest of the batch's global Mode/Format setting, via the Type button on that row — useful for grabbing most of a playlist as mp3 while pulling one track as mp4.
+- **Cookie support (optional)** — upload a `cookies.txt` in Settings (or drop one in next to `app.py`) to fix "Sign in to confirm you're not a bot" and other login-gated failures; see "Getting cookies" below.
 - **Library browser** — search, play, and delete anything you've already downloaded, right from the app. Also flags duplicate songs sitting in your library under different filenames (e.g. downloaded twice from two different playlists).
 - **M3U export** — writes a `.m3u` file into your download folder listing a playlist's downloaded tracks in their original order.
 - **Folder picker** — choose your download folder via a native OS dialog instead of typing a path.
@@ -74,11 +77,18 @@ mimicry/
 ├── requirements.txt
 ├── templates/
 │   └── index.html      # Flask loads this via render_template — must stay here
+├── index.html           # source of truth — build.py copies this into templates/ on every build
 ├── README.md
 ├── LICENSE
 └── .gitignore
+
+# Created by setup_pot_provider.py, gitignored — platform-specific, so
+# these aren't checked in (see "PO-Token provider" above):
+├── bgutil-pot(.exe)
+└── yt-dlp-plugins/
 ```
-`settings.json` and `cookies.txt` (if you create one) are generated/placed
+`settings.json` and `cookies.txt` (created automatically the first time you
+upload one via Settings, or if you place one yourself) are generated/placed
 next to `app.py` at runtime — they're git-ignored and shouldn't be committed.
 
 ## Setup
@@ -97,6 +107,37 @@ Windows but is sometimes a separate package on Linux:
 If tkinter isn't available, the folder picker button will show an error —
 you can still set your download folder by typing the path directly.
 
+You also need a **JavaScript runtime** on PATH for yt-dlp itself to fully
+support YouTube (its own requirement since yt-dlp 2025.11.12, not something
+this app adds) — **Deno** is the one it auto-detects with zero extra config.
+`requirements.txt` includes the official `deno` PyPI package, which
+downloads the real Deno binary and puts a `deno` command on PATH as part
+of the same `pip install -r requirements.txt` step above — nothing extra
+to do in the common case.
+
+`requirements.txt` also includes **`yt-dlp-ejs`**, the JS solver script
+yt-dlp needs alongside Deno — without it, extraction still works but falls
+back to fetching that script fresh from GitHub on every cold cache instead
+of using the bundled copy. Its version has to track your installed
+`yt-dlp` version closely, so when you update yt-dlp (see Troubleshooting),
+update `yt-dlp-ejs` in the same command — `pip install -U yt-dlp` alone
+doesn't reliably bump it too.
+
+If `deno` still isn't found after that (e.g. a `pip install --user` whose
+script directory isn't on PATH), install it directly instead:
+- macOS: `brew install deno`
+- Windows: `winget install --id=DenoLand.Deno`
+- Linux: the install script at [deno.land](https://deno.land), or your
+  distro's package if it has one
+- Installed yt-dlp via **pipx**? Deno needs to be visible inside that
+  isolated environment specifically: `pipx inject yt-dlp deno`.
+
+Node, QuickJS, and Bun also work, but need an explicit `--js-runtimes` flag
+this app doesn't currently expose — stick with Deno unless you have a
+reason not to. Without any JS runtime, YouTube extraction still works, just
+increasingly limited (worst for logged-in/cookie requests) — see
+"Troubleshooting" below.
+
 ## Run
 ```bash
 python3 app.py
@@ -108,6 +149,29 @@ user folder — no admin rights needed). Change it anytime from the folder
 picker in the app, or by editing `DEFAULT_DOWNLOAD_DIR` at the top of
 `app.py`. Once set, your choice is remembered in `settings.json` next to the
 app.
+
+## PO-Token provider (optional)
+
+You may see this in `debug.log` (Settings → enable debug logging) even
+though downloads still succeed:
+```
+yt-dlp warning: [youtube] [pot:bgutil:http] Error reaching GET http://127.0.0.1:4416/ping ...
+yt-dlp warning: [youtube] ... requires a GVS PO Token which was not provided. They will be skipped ...
+```
+This is expected, not a bug: yt-dlp supports an optional local PO-Token
+server that helps YouTube extraction work more reliably (fewer skipped
+formats, fewer "Sign in to confirm you're not a bot" errors) — without one
+configured, yt-dlp just falls back to a client that doesn't need a token,
+which is why downloads still work. Setting one up is optional and only
+worth doing if you're hitting those failures often:
+
+```bash
+python3 setup_pot_provider.py
+```
+Downloads the [bgutil-pot](https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs)
+binary + matching yt-dlp plugin for your OS and places both next to
+`app.py`. Restart the app afterward — it's auto-detected and launched, no
+further config needed. Safe to re-run any time to pick up a newer release.
 
 ## Security
 
@@ -163,16 +227,25 @@ regular browsing session/extensions.
 5. **Close the Incognito window** once you're done — this ends that
    session cleanly without leaving it logged in.
 
-6. **Save `cookies.txt` next to `app.py`.**
+6. **Load it into the app**, either way:
+   - **In-app (recommended)** — Settings panel → "YouTube/site cookies" →
+     pick the exported file. Takes effect immediately, no restart needed,
+     and the panel shows a "Loaded ✓" status once it's in.
+   - **Manually** — save the file as `cookies.txt` next to `app.py`. Picked
+     up automatically on the next request; the Settings panel will show it
+     as loaded too, since both paths write to the exact same file.
 
-   ⚠️ `app.py` doesn't currently read this file — nothing will change until
-   `cookiefile` support is added to the yt-dlp options in the code. Let me
-   know if you'd like that wired in.
+   Every yt-dlp call the app makes (listing, search, preview, and the
+   actual download) checks for this file fresh each time and uses it if
+   present — it isn't YouTube-specific either; if your export also covers
+   another site's cookies (TikTok, Instagram, etc.), those get sent too.
 
 **Keep `cookies.txt` private.** It's equivalent to your login session for
 whatever site it was exported from — don't share it, commit it to a repo,
 or upload it anywhere. Cookies also expire, so if downloads start failing
-again after a while, just re-export a fresh one.
+again after a while, just re-export a fresh one (same steps, then re-upload
+or overwrite the file — the "Remove cookies" button in Settings clears it
+if you'd rather start over).
 
 ## Troubleshooting
 - **"Missing or invalid app token"** → this shouldn't happen from the app's
@@ -182,10 +255,29 @@ again after a while, just re-export a fresh one.
   output or `settings.json` for the current token.
 - **"Couldn't read that playlist"** → the link isn't public, or `yt-dlp` is
   out of date (YouTube changes things often):
-  `pip install -U yt-dlp --break-system-packages`.
+  `pip install -U yt-dlp yt-dlp-ejs --break-system-packages` — update both
+  together, since `yt-dlp-ejs` has to track `yt-dlp`'s version closely and
+  won't get bumped automatically if you only update `yt-dlp`.
 - **"Sign in to confirm you're not a bot" / sudden 403 errors** → see
   "Getting cookies" above.
+- **Preview/download works for some videos but not others, formats seem
+  limited, or you see "No supported JavaScript runtime could be found" in
+  the console** → yt-dlp needs an external JS runtime (Deno) for full
+  YouTube support now — see the Deno step in "Setup" above. This is
+  yt-dlp's own requirement, not a bug in this app, and gets worse over time
+  the longer it's missing (YouTube's format restrictions without a JS
+  runtime are expected to tighten, not loosen).
 - **Downloads fail with an ffmpeg error** → ffmpeg isn't installed or not on PATH.
+- **The app does nothing when double-clicked** (no window, no error) →
+  almost always means Python isn't installed/on PATH on that machine — the
+  exe's launcher needs Python 3.9+ present on the machine to run `app.py`
+  under (not bundled). Try running the exe from a terminal instead of
+  double-clicking, so any startup error has somewhere to print to.
+- **`AttributeError: ... 'BgUtilScriptDenoPTP' ... '_script_path_provided'`**
+  in `debug.log` → two different PO-Token plugin packages are installed at
+  once (the original TypeScript project's pip package, alongside the Rust
+  one from `setup_pot_provider.py`). Remove the old one:
+  `pip uninstall bgutil-ytdlp-pot-provider -y --break-system-packages`.
 - **Port 5000 already in use** (common on macOS, AirPlay uses it) → change
   `port=5000` at the bottom of `app.py`.
 - **No cover art on a track** → some videos genuinely have no usable
@@ -197,57 +289,6 @@ again after a while, just re-export a fresh one.
 - **Wrong or missing release year** → only set when YouTube Music exposes
   real release metadata for that track; most regular (non-Music) uploads
   don't have this, so the tag is left blank rather than guessed.
-
-## Resource usage
-
-Rough estimates, not measured benchmarks — actual numbers vary by OS,
-Python version, and platform-specific wheels. Use the commands at the end
-of this section to check your own install exactly.
-
-**Disk (Python dependencies only, in a venv):**
-
-| Package | Approx. size | Why |
-|---|---|---|
-| yt-dlp | ~20–25 MB | Bundles extractor modules for hundreds of sites in one package |
-| Flask + deps (Werkzeug, Jinja2, etc.) | ~3–5 MB | Small, mostly pure Python |
-| requests + deps (urllib3, certifi, etc.) | ~5–7 MB | certifi's CA bundle is a few hundred KB on its own |
-| mutagen | ~1–2 MB | Pure Python |
-| Pillow | ~5–15 MB | Bundles compiled image-codec libraries |
-| **Total** | **~35–55 MB** | Before counting Python itself |
-
-Not part of the pip install, but needed separately:
-- **ffmpeg** — commonly 60–130 MB depending on platform/build.
-- **tkinter** — free on macOS/Windows (ships with Python); a few MB via
-  `python3-tk` on Linux.
-
-**Runtime memory (RSS):**
-- yt-dlp is imported eagerly at startup (it registers every extractor at
-  import time), adding roughly 15–25 MB on top of Flask's own ~25–40 MB —
-  so an idle server sits around **~50–65 MB**.
-- Pillow and mutagen are imported lazily, only inside the functions that
-  use them, specifically so a browse/search/preview-only session never
-  pays their cost. The first real download (which embeds cover art) pulls
-  Pillow in and pushes usage toward **~70–90 MB**, staying there for the
-  rest of the process's life since Python caches imports.
-- ffmpeg runs as its own subprocess, so its memory isn't part of the Flask
-  process — audio extraction is light (tens of MB); the optional video
-  compression pass is heavier (encoding buffers frames, potentially a few
-  hundred MB for HD/4K), freed once that process exits.
-- Concurrency multiplies ffmpeg's cost more than Flask's: several
-  simultaneous audio conversions stay light, but several simultaneous
-  video compressions will load every CPU core and use meaningfully more
-  memory than the Python process itself.
-
-**Check your own numbers:**
-```bash
-# Installed package sizes
-du -sh venv/lib/python*/site-packages/* | sort -h
-
-# Running process RSS
-ps -o rss,command -p $(pgrep -f "python3 app.py")
-```
-
-
 
 **Not supported at all:**
 - **Spotify** — deliberately excluded, not a bug. Spotify's streams are
@@ -276,15 +317,17 @@ one of these, but it's worth knowing upfront:
   fail regardless of login.
 - **Dailymotion** — age-restricted videos need a login; most other content
   works fine.
-- None of these currently support the cookie-based fix described in
-  "Getting cookies" above — that section's instructions are YouTube-specific
-  for now (`cookiefile` isn't wired into the yt-dlp options yet for any
-  site, YouTube included — see the note in that section).
+- The cookie-based fix in "Getting cookies" above isn't YouTube-specific —
+  it's a plain yt-dlp option applied to every request regardless of site —
+  so it can help with any of these too, provided your `cookies.txt` export
+  actually includes that site's cookies (a "Get cookies.txt LOCALLY" export
+  scoped to "Current Site" only captures the domain you were on).
 
 **General limitations, not specific to any one site:**
 - **yt-dlp lags site changes** — YouTube (and others) change their internals
   often enough that extraction can break until yt-dlp ships a fix, sometimes
-  a few days' gap. `pip install -U yt-dlp` is the fix once one's out.
+  a few days' gap. `pip install -U yt-dlp yt-dlp-ejs` is the fix once one's
+  out (see the note on updating both together above).
 - **Large playlists slow down duplicate detection** — the within-playlist
   near-duplicate check compares each title against every previously-seen
   title in that playlist. Fine up to a few hundred tracks; a playlist in

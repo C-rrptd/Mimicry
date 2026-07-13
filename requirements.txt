@@ -1,16 +1,16 @@
-# yt-dlp ships near-daily releases tied to YouTube's changing internals —
-# an unpinned install can silently drift onto a version that breaks
-# extraction, so pin a known-good floor and update deliberately with:
-#   pip install -U yt-dlp --break-system-packages
-yt-dlp>=2024.12.6
-
-flask>=3.0,<4.0
-requests>=2.31,<3.0
-mutagen>=1.47,<2.0
-Pillow>=10.0,<12.0
-
-# Not installable via pip — see README's Setup section:
-#   ffmpeg   (system binary, required for audio/video conversion)
-#   tkinter  (ships with Python on macOS/Windows; a separate OS package
-#             on some Linux distros, e.g. `python3-tk` on Debian/Ubuntu;
-#             only needed for the in-app folder picker)
+flask
+yt-dlp
+# Bundles the JS solver script yt-dlp needs for YouTube's n-challenge, so no
+# runtime fetch from GitHub is needed. Keep this updated alongside yt-dlp —
+# its version has to track yt-dlp's closely, and `pip install -U yt-dlp`
+# alone does not reliably bump this too (see README Troubleshooting).
+yt-dlp-ejs
+requests
+pywebview
+mutagen
+Pillow
+pystray; sys_platform == "win32"
+deno
+# Spotify's Web API (see fetch_spotify_metadata in app.py) — requires a
+# real user login via OAuth, not just an API key; see Settings > Spotify.
+spotipy
